@@ -4,16 +4,18 @@
 wechaty channel
 Python Wechaty - https://github.com/wechaty/python-wechaty
 """
+import io
 import os
+import json
 import time
 import asyncio
+import requests
 from typing import Optional, Union
 from wechaty_puppet import MessageType, FileBox, ScanStatus  # type: ignore
 from wechaty import Wechaty, Contact
 from wechaty.user import Message, Room, MiniProgram, UrlLink
 from channel.channel import Channel
 from common.log import logger
-from common.tmp_dir import TmpDir
 from config import conf
 
 
@@ -43,38 +45,26 @@ class WechatyChannel(Channel):
 
     async def on_scan(self, status: ScanStatus, qr_code: Optional[str] = None,
                       data: Optional[str] = None):
-        logger.info('[WX] scan status={}, scan qr_code={}'.format(status, qr_code))
+        contact = self.Contact.load(self.contact_id)
+        logger.info('[WX] scan user={}, scan status={}, scan qr_code={}'.format(contact, status.name, qr_code))
         # print(f'user <{contact}> scan status: {status.name} , 'f'qr_code: {qr_code}')
 
     async def on_message(self, msg: Message):
         """
         listen for message event
         """
-        
-        if msg.type() != MessageType.MESSAGE_TYPE_TEXT and msg.type() != MessageType.MESSAGE_TYPE_AUDIO:
-            return
-
         from_contact = msg.talker()  # 获取消息的发送者
         to_contact = msg.to()  # 接收人
         room = msg.room()  # 获取消息来自的群聊. 如果消息不是来自群聊, 则返回None
         from_user_id = from_contact.contact_id
         to_user_id = to_contact.contact_id  # 接收人id
         # other_user_id = msg['User']['UserName']  # 对手方id
-        content = ""
-        if msg.type() == MessageType.MESSAGE_TYPE_TEXT:
-            content = msg.text()
-        elif msg.type() == MessageType.MESSAGE_TYPE_AUDIO:
-            file_box = await msg.to_file_box()
-            saved_file = os.path.join(TmpDir().path(), file_box.name)
-            await file_box.to_file(saved_file)
-            content = super().build_voice_to_text(saved_file)
-        
+        content = msg.text()
         mention_content = await msg.mention_text()  # 返回过滤掉@name后的消息
         match_prefix = self.check_prefix(content, conf().get('single_chat_prefix'))
         conversation: Union[Room, Contact] = from_contact if room is None else room
 
-
-        if room is None :
+        if room is None and msg.type() == MessageType.MESSAGE_TYPE_TEXT:
             if not msg.is_self() and match_prefix is not None:
                 # 好友向自己发送消息
                 if match_prefix != '':
